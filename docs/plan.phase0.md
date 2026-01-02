@@ -84,26 +84,22 @@ Create a minimal, clean repo scaffold that compiles and runs tests locally.
 
 ### Milestone 0.3 — Tests scaffold + smoke tests
 
-**Microstep 0.3.1 — Create Unit test project**
-- Goal: Add Unit test project and run a trivial passing test.
-- Files expected to change: `tests/Unit/*`
-- Commands to run: `dotnet test`
-- Acceptance: `dotnet test` passes
-- Stop condition: Stop and ask approval.
 
-**Microstep 0.3.2 — Create Integration test project (empty for now)**
-- Goal: Create the project so it’s ready for later phases.
-- Files expected to change: `tests/Integration/*`
-- Commands to run: `dotnet test`
-- Acceptance: test run still passes (no infra introduced)
-- Stop condition: Stop and ask approval.
+**Microstep 0.3.1 — Scaffold Test Infrastructure**
 
-**Microstep 0.3.3 — Create E2E test project (empty for now)**
-- Goal: Create the project so it’s ready for later phases.
-- Files expected to change: `tests/E2E/*`
-- Commands to run: `dotnet test`
-- Acceptance: test run still passes
-- Stop condition: Stop and ask approval.
+* **Goal:** Create `Unit`, `Integration`, and `E2E` test projects, add them to the solution, and ensure the test runner detects them. Add a trivial passing test to the Unit project to verify the harness works.
+* **Files expected to change:** `tests/Unit/*`, `tests/Integration/*`, `tests/E2E/*`, `*.sln`
+* **Commands to run:** `dotnet test`
+* **Acceptance:**
+1. Directory structure exists for all three test types.
+2. Projects are added to the `.sln` file.
+3. `dotnet test` runs successfully and reports at least 1 passing test (from the Unit project).
+
+* **Stop condition:** Stop and ask approval.
+
+---
+
+**Would you like me to look at the next few steps (0.4 series) to see if we can batch those into larger chunks as well?**
 
 ---
 
@@ -114,11 +110,4 @@ Create a minimal, clean repo scaffold that compiles and runs tests locally.
 - Files expected to change: `scripts/test.unit.ps1` (and maybe `scripts/test.all.ps1` if desired)
 - Commands to run: `pwsh ./scripts/test.unit.ps1`
 - Acceptance: script succeeds and runs `dotnet test`
-- Stop condition: Stop and ask approval.
-
-**Microstep 0.4.2 — Verify `.editorconfig` is present at repo root**
-- Goal: Ensure formatting rules are in place early.
-- Files expected to change: `.editorconfig` (only if missing)
-- Commands to run: `dotnet build`
-- Acceptance: build succeeds; editorconfig is present
 - Stop condition: Stop and ask approval.
