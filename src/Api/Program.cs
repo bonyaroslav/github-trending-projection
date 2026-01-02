@@ -12,9 +12,11 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.MapGet("/health", () => Results.StatusCode(StatusCodes.Status501NotImplemented));
-app.MapGet("/version", () => Results.StatusCode(StatusCodes.Status501NotImplemented));
+app.MapGet("/health", () => Results.Ok(new Api.Contracts.HealthResponse("ok")));
+app.MapGet("/version", () => Results.Ok(new Api.Contracts.VersionResponse("dev")));
 app.MapGet("/repositories", () => Results.StatusCode(StatusCodes.Status501NotImplemented));
 app.MapGet("/repositories/{id}", (string id) => Results.StatusCode(StatusCodes.Status501NotImplemented));
 
 app.Run();
+
+public partial class Program;

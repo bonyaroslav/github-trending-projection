@@ -36,9 +36,23 @@ Define a stable v1 REST API contract and implement the first endpoints with test
 
 ---
 
-### Milestone 1.2 — API host wiring + health/version
+### Milestone 1.2 - API host wiring + health/version
 
-**Microstep 1.2.1 (CONTRACT) — Add request/response DTOs + endpoint signatures**
+**Microstep 1.2.0 (DOC) - Allow integration test hosting dependency**
+- Goal: Document the required test host package for integration tests.
+- Files expected to change: `docs/plan.phase1.md`
+- Commands to run: (doc-only) manual review
+- Acceptance: plan allows adding `Microsoft.AspNetCore.Mvc.Testing` + API project reference for tests
+- Stop condition: Stop and ask approval.
+
+**Microstep 1.2.1a (CONTRACT) - Expose Program for integration test hosting**
+- Goal: Add a minimal `public partial class Program` seam for `WebApplicationFactory`.
+- Files expected to change: `src/Api/Program.cs`
+- Commands to run: `dotnet build`
+- Acceptance: build succeeds
+- Stop condition: Stop and ask approval.
+
+**Microstep 1.2.1 (CONTRACT) - Add request/response DTOs + endpoint signatures**
 - Goal: Add minimal DTOs and endpoint shape so tests can compile (no behavior).
 - Files expected to change: `src/Api/Contracts/*` (or similar)
 - Commands to run: `dotnet build`
