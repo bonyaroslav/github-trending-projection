@@ -1,19 +1,35 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
+using Integration.Support;
 
 namespace Integration;
 
-public sealed class HealthVersionEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
+[Collection("Postgres")]
+public sealed class HealthVersionEndpointsTests : IAsyncLifetime
 {
-    private readonly HttpClient _client;
+    private readonly PostgresFixture _fixture;
+    private PostgresWebApplicationFactory _factory = null!;
+    private HttpClient _client = null!;
 
-    public HealthVersionEndpointsTests(WebApplicationFactory<Program> factory)
+    public HealthVersionEndpointsTests(PostgresFixture fixture)
     {
-        _client = factory.CreateClient();
+        _fixture = fixture;
     }
 
-    [Fact]
+    public async Task InitializeAsync()
+    {
+        await _fixture.ResetAsync();
+        _factory = new PostgresWebApplicationFactory(_fixture.ConnectionString);
+        _client = _factory.CreateClient();
+    }
+
+    public Task DisposeAsync()
+    {
+        _factory.Dispose();
+        return Task.CompletedTask;
+    }
+
+    [DockerFact]
     public async Task GetHealth_ReturnsOk()
     {
         var response = await _client.GetAsync("/health");
@@ -21,7 +37,7 @@ public sealed class HealthVersionEndpointsTests : IClassFixture<WebApplicationFa
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetVersion_ReturnsVersionPayload()
     {
         var response = await _client.GetAsync("/version");

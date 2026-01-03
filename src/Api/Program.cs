@@ -6,7 +6,7 @@ using Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddInfrastructure();
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddSingleton<IValidator<SnapshotCreateCommand>, SnapshotCreateCommandValidator>();
 
 var app = builder.Build();

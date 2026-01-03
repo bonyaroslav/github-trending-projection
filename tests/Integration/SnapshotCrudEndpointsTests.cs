@@ -1,20 +1,40 @@
 using System.Net;
 using System.Net.Http.Json;
 using Api.Contracts;
+using Integration.Support;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Integration;
 
-public sealed class SnapshotCrudEndpointsTests
+[Collection("Postgres")]
+public sealed class SnapshotCrudEndpointsTests : IAsyncLifetime
 {
-    [Fact]
+    private readonly PostgresFixture _fixture;
+    private PostgresWebApplicationFactory _factory = null!;
+    private HttpClient _client = null!;
+
+    public SnapshotCrudEndpointsTests(PostgresFixture fixture)
+    {
+        _fixture = fixture;
+    }
+
+    public async Task InitializeAsync()
+    {
+        await _fixture.ResetAsync();
+        _factory = new PostgresWebApplicationFactory(_fixture.ConnectionString);
+        _client = _factory.CreateClient();
+    }
+
+    public Task DisposeAsync()
+    {
+        _factory.Dispose();
+        return Task.CompletedTask;
+    }
+
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsCreatedWithLocation()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest());
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest());
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotNull(response.Headers.Location);
@@ -30,15 +50,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.EndsWith($"/api/v1/snapshots/{payload.Id}", response.Headers.Location!.ToString());
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshot_ReturnsDetail()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -50,15 +67,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("Optional notes", payload.Notes);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task ListSnapshots_ReturnsPagedSummaries()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync("/api/v1/snapshots?page=1&pageSize=20");
+        var response = await _client.GetAsync("/api/v1/snapshots?page=1&pageSize=20");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -70,15 +84,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Contains(payload.Items, item => item.Id == created.Id);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task PatchSnapshot_UpdatesMetadata()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.PatchAsJsonAsync($"/api/v1/snapshots/{created.Id}", new
+        var response = await _client.PatchAsJsonAsync($"/api/v1/snapshots/{created.Id}", new
         {
             name = "Renamed snapshot",
             notes = "Updated notes"
@@ -93,69 +104,54 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("Updated notes", payload.Notes);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task DeleteSnapshot_RemovesSnapshot()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var deleteResponse = await client.DeleteAsync($"/api/v1/snapshots/{created.Id}");
+        var deleteResponse = await _client.DeleteAsync($"/api/v1/snapshots/{created.Id}");
 
         Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
 
-        var getResponse = await client.GetAsync($"/api/v1/snapshots/{created.Id}");
+        var getResponse = await _client.GetAsync($"/api/v1/snapshots/{created.Id}");
 
         Assert.Equal(HttpStatusCode.NotFound, getResponse.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsBadRequest_WhenRepositoriesEmpty()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var request = BuildCreateRequest(repositories: new List<RepositorySnapshotDto>());
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsConflict_WhenCapturedAtAndSourceMatch()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var request = BuildCreateRequest(capturedAt: "2026-01-02T18:45:00Z", source: "manual");
 
-        var first = await client.PostAsJsonAsync("/api/v1/snapshots", request);
-        var second = await client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var first = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var second = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
 
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshot_ReturnsNotFound_WhenMissing()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
-        var response = await client.GetAsync("/api/v1/snapshots/missing");
+        var response = await _client.GetAsync("/api/v1/snapshots/missing");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshot_ReturnsProblemDetails_WhenMissing()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
-        var response = await client.GetAsync("/api/v1/snapshots/missing");
+        var response = await _client.GetAsync("/api/v1/snapshots/missing");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -166,15 +162,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal((int)HttpStatusCode.NotFound, payload!.Status);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsProblemDetails_WhenInvalid()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var request = BuildCreateRequest(repositories: new List<RepositorySnapshotDto>());
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -185,16 +178,13 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal((int)HttpStatusCode.BadRequest, payload!.Status);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsProblemDetails_WhenConflict()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var request = BuildCreateRequest(capturedAt: "2026-01-02T18:45:00Z", source: "manual");
 
-        var first = await client.PostAsJsonAsync("/api/v1/snapshots", request);
-        var second = await client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var first = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
+        var second = await _client.PostAsJsonAsync("/api/v1/snapshots", request);
 
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
@@ -206,83 +196,68 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal((int)HttpStatusCode.Conflict, payload!.Status);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsBadRequest_WhenRankDuplicate()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var repositories = new List<RepositorySnapshotDto>
         {
             BuildRepository(rank: 1, repoId: "repo-1"),
             BuildRepository(rank: 1, repoId: "repo-2")
         };
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsBadRequest_WhenRepoIdDuplicate()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var repositories = new List<RepositorySnapshotDto>
         {
             BuildRepository(rank: 1, repoId: "repo-1"),
             BuildRepository(rank: 2, repoId: "repo-1")
         };
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsBadRequest_WhenRankHasGaps()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var repositories = new List<RepositorySnapshotDto>
         {
             BuildRepository(rank: 1, repoId: "repo-1"),
             BuildRepository(rank: 3, repoId: "repo-2")
         };
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task CreateSnapshot_ReturnsBadRequest_WhenStarsOrForksNegative()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
         var repositories = new List<RepositorySnapshotDto>
         {
             BuildRepository(rank: 1, repoId: "repo-1", stars: -1),
             BuildRepository(rank: 2, repoId: "repo-2", forks: -5)
         };
 
-        var response = await client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
+        var response = await _client.PostAsJsonAsync("/api/v1/snapshots", BuildCreateRequest(repositories: repositories));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositories_ReturnsPagedRepositories()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?page=1&pageSize=10");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?page=1&pageSize=10");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -294,15 +269,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("octocat/hello-world", payload.Items[0].FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositories_FiltersByQuery()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client, BuildRepositoryList());
 
-        var created = await CreateSnapshotAsync(client, BuildRepositoryList());
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?q=runtime");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?q=runtime");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -313,15 +285,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("dotnet/runtime", payload.Items[0].FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositories_FiltersByLanguage()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client, BuildRepositoryList());
 
-        var created = await CreateSnapshotAsync(client, BuildRepositoryList());
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?language=Kotlin");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?language=Kotlin");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -332,15 +301,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("kotlin/kotlinx.coroutines", payload.Items[0].FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositories_SortsByStarsDescendingByDefault()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client, BuildRepositoryList());
 
-        var created = await CreateSnapshotAsync(client, BuildRepositoryList());
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?sort=stars");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?sort=stars");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -350,15 +316,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("dotnet/runtime", payload!.Items[0].FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositories_SortsByForksAscending()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client, BuildRepositoryList());
 
-        var created = await CreateSnapshotAsync(client, BuildRepositoryList());
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?sort=forks&order=asc");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories?sort=forks&order=asc");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -368,16 +331,13 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("octocat/hello-world", payload!.Items[0].FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepository_ReturnsRepositoryById()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
-
-        var created = await CreateSnapshotAsync(client);
+        var created = await CreateSnapshotAsync(_client);
         var repoId = Uri.EscapeDataString("MDEwOlJlcG9zaXRvcnkxMjM0NTY3OA==");
 
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/{repoId}");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/{repoId}");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -388,15 +348,12 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal(1, payload.Rank);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositoryByFullName_ReturnsRepository()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name?fullName=octocat/hello-world");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name?fullName=octocat/hello-world");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
@@ -406,28 +363,22 @@ public sealed class SnapshotCrudEndpointsTests
         Assert.Equal("octocat/hello-world", payload!.FullName);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositoryByFullName_ReturnsNotFound_WhenMissing()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name?fullName=missing/repo");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name?fullName=missing/repo");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    [Fact]
+    [DockerFact]
     public async Task GetSnapshotRepositoryByFullName_ReturnsBadRequest_WhenFullNameMissing()
     {
-        using var factory = new WebApplicationFactory<Program>();
-        using var client = factory.CreateClient();
+        var created = await CreateSnapshotAsync(_client);
 
-        var created = await CreateSnapshotAsync(client);
-
-        var response = await client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name");
+        var response = await _client.GetAsync($"/api/v1/snapshots/{created.Id}/repositories/by-full-name");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
