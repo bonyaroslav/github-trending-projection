@@ -1,21 +1,32 @@
-# Requirements — GitHub Trending Sync Service (Postgres-only)
+## 1) Requirements.md — edited version (Snapshot-first, “full crude API”)
 
-**GitHub Trending (seed) → GitHub GraphQL (enrich) → PostgreSQL (single source of truth) → REST API**
-Target stack: **.NET 10 + C# 14 + ASP.NET Core (.NET 10 / C# 14) + EF Core (.NET 10 / C# 14) + PostgreSQL + Hangfire + Strawberry Shake (StrawberryShake)**
-Primary goal: **demonstrate senior-level system design, maintainable code, and strict TDD discipline (CONTRACT → RED → GREEN → REFACTOR).**
+### What changed (high-level)
+
+* **Before:** each sync overwrote “current state” in Postgres (projection).
+* **Now:** each sync **creates a new immutable snapshot** (append-only), and API queries snapshots + the repositories inside them. Metadata can be updated; snapshot contents cannot.
+
+> You can paste this as a replacement for your Requirements.md, or treat it as “v2”.
+
+---
+
+# Requirements — GitHub Trending Snapshots Service (Postgres-only)
+
+**GitHub Trending (seed) → GitHub GraphQL (enrich) → PostgreSQL (snapshots) → REST API**
+Target stack: **.NET 10 + C# 14 + ASP.NET Core + EF Core + PostgreSQL + Hangfire + Strawberry Shake**
+Primary goal: **senior-level system design + maintainable code + strict TDD (CONTRACT → RED → GREEN → REFACTOR).**
 
 ---
 
 ## 0) Executive summary
 
-Implement a backend service that periodically collects **Trending repositories** (from GitHub Trending UI), enriches them via the **GitHub GraphQL API**, persists the resulting dataset into **PostgreSQL**, and exposes a **REST API** to query and modify the stored data. Background sync is orchestrated via **Hangfire** (recurring and on-demand jobs). ([Hangfire][1])
+Implement a backend service that periodically collects **Trending repositories**, enriches them via **GitHub GraphQL**, and persists **time-frozen, immutable snapshots** into **PostgreSQL**. The service exposes a **REST API** to manage snapshots (CRUD metadata + delete) and to query repositories *within a snapshot*. Background sync is orchestrated via **Hangfire** (recurring and on-demand jobs).
 
 Key emphasis:
 
-* **Clean Architecture** boundaries (Domain / Application / Infrastructure / API)
-* **TDD-first** workflow (contract-first + tests-first)
-* Production-minded reliability: **idempotency**, **rate-limit awareness**, **bounded retries**, **single-flight sync**
-* Strong DX: **README**, predictable configuration, consistent error handling, reproducible tests (Docker/testcontainers as needed)
+* Clean Architecture boundaries (Domain / Application / Infrastructure / API)
+* Contract-first and tests-first TDD discipline
+* Reliability: idempotency, rate-limit awareness, bounded retries, single-flight sync
+* Strong DX: README, consistent errors, reproducible tests (Docker/Testcontainers as needed)
 
 ---
 
@@ -23,43 +34,34 @@ Key emphasis:
 
 ### 1.1 Trending is a UI page, not an official API
 
-GitHub does **not** provide official REST API endpoints for `/trending` (or `/explore`). Treat Trending as a **seed-only** source and implement it behind an abstraction so it can be replaced later. ([GitHub][2])
+Treat Trending as a **seed-only** source behind an abstraction (`ITrendingSeedProvider`) and be resilient to HTML changes.
 
-Trending URL (seed source):
+Trending URL seed source:
 
-```text
-https://github.com/trending
-```
+* `https://github.com/trending`
 
 ### 1.2 GitHub GraphQL endpoint and auth
 
-GitHub GraphQL endpoint:
-
-```text
-https://api.github.com/graphql
-```
-
-Clients must send `Authorization: Bearer <TOKEN>` (token management is out of scope; it is provided via configuration). ([GitHub Docs][3])
+* Endpoint: `https://api.github.com/graphql`
+* Auth: `Authorization: Bearer <TOKEN>` via configuration
 
 ### 1.3 Pagination constraints (GraphQL)
 
-GraphQL connections require `first` or `last` and the value must be **1–100**. ([GitHub Docs][4])
+Connections require `first` or `last` within **1–100**.
 
 ### 1.4 Rate limiting constraints (GraphQL)
 
-The implementation must explicitly handle GitHub GraphQL rate limits and query limits (primary limits and related behaviors). ([GitHub Docs][5])
+Explicitly handle GitHub GraphQL rate/query limits.
 
 ---
 
 ## 2) Non-goals (for v1)
 
-These are intentionally out of scope unless explicitly added later:
-
 * Writing back to GitHub (mutations)
-* Perfectly recreating GitHub’s internal Trending ranking algorithm
-* Heavy performance/stress testing (optional late task)
-* Finalizing an advanced API versioning strategy up front (e.g., `/v1`)
-* Implementing a “perfect” merge policy for projection updates (see §5.4 for the explicit TBD decision point)
+* Recreating GitHub’s internal Trending algorithm
+* “Perfect” diffing/compare between snapshots (optional later)
+* Heavy load testing (optional later)
+* Advanced multi-versioning strategy beyond `/api/v1` (keep simple)
 
 ---
 
@@ -67,327 +69,331 @@ These are intentionally out of scope unless explicitly added later:
 
 ### 3.1 Clean Architecture boundaries
 
-Implement with at least these layers:
+* Domain: entities/value objects, invariants
+* Application: use cases (capture snapshot, list snapshots, update metadata, query snapshot repos), ports/interfaces
+* Infrastructure: Trending provider, GitHub GraphQL client, EF Core/Postgres, Hangfire wiring, retry/rate-limit logic
+* API/Presentation: endpoints, validation, ProblemDetails mapping
 
-* **Domain**: entities/value objects, invariants, domain rules
-* **Application**: use cases (sync orchestration, mapping, persistence, query services), ports/interfaces
-* **Infrastructure**: Trending seed provider, GitHub GraphQL client (Strawberry Shake), EF Core/Postgres, Hangfire wiring, retry/rate-limit plumbing
-* **API/Presentation**: REST endpoints, request/response models, validation, error mapping
+Dependency direction:
 
-**Dependency direction**
-
-* Domain must not depend on Infrastructure.
-* Application references only abstractions; Infrastructure implements ports.
-* API depends on Application, not vice versa.
+* Domain does not depend on Infrastructure
+* Application depends on abstractions; Infrastructure implements ports
+* API depends on Application only
 
 ### 3.2 Ports/adapters (TDD-enabling)
 
-All external dependencies must be behind interfaces (names are illustrative):
+External dependencies behind interfaces (illustrative):
 
 * `ITrendingSeedProvider`
-* `IGitHubGraphQlClient` (implemented via Strawberry Shake) ([chillicream.com][6])
-* `IRepositoryStore` / `IRepositoryReadModel` (Postgres persistence/query)
-* `ISyncCoordinator` (single-flight + orchestration)
+* `IGitHubGraphQlClient` (Strawberry Shake)
+* `ISnapshotStore` / `ISnapshotReadModel`
+* `ISyncCoordinator` (single-flight orchestration)
 * `IJobScheduler` (Hangfire wrapper)
-* `IClock` (time abstraction)
-
-This is mandatory to support tests-first development.
+* `IClock`
 
 ---
 
 ## 4) Process requirement: Phases → Milestones → Microsteps
 
-* Project execution must be maintained as: **Phases → Milestones → Microsteps**.
-* Microsteps are expected to evolve over time as you learn and make decisions.
-* The plan must remain compatible with strict TDD loop enforcement: every milestone should be decomposable into contract/tests/implementation/refactor microsteps.
+Project execution is maintained as **Phases → Milestones → Microsteps**, compatible with strict TDD.
 
 ---
 
-## 5) Functional requirements
+## 5) Functional requirements (Snapshot-based)
 
-### FR-0 API Contract must be designed early (TDD prerequisite)
+### FR-0 API contract is a first-class artifact (TDD prerequisite)
 
-Because TDD requires a stable target to test against, the **REST API contract is a first-class artifact** and must be defined early (first milestone).
+The REST API contract must be defined early and used as the test target.
 
-Minimum contract artifacts must include:
+Minimum contract artifacts:
 
-* endpoint list (routes + HTTP verbs)
+* routes + verbs
 * request/response DTOs
-* validation rules (minimum: required fields, ranges)
-* error format (ProblemDetails recommended, but not mandatory)
-* pagination/sorting/filtering rules (at least one, documented)
+* validation rules
+* error format (ProblemDetails)
+* pagination rules
+* snapshot immutability rules
 
-> Note: GitHub GraphQL contract already exists; your internal API contract does not, so it must be explicitly designed up front.
-
----
+> Use `API.md` as the contract source of truth for v1.
 
 ### FR-1 Seed acquisition (Trending)
 
-1. Fetch Trending seeds from:
+1. Fetch Trending seeds from `https://github.com/trending`.
+2. Implement behind `ITrendingSeedProvider`.
+3. Low-frequency + cached (configurable TTL).
+4. Resilient to HTML changes; fail gracefully (do not crash API process).
 
-   ```text
-   https://github.com/trending
-   ```
+### FR-2 Enrichment (GitHub GraphQL via Strawberry Shake)
 
-2. Must be implemented through `ITrendingSeedProvider`.
+Given a seed repo (`owner/name`), fetch repository details via GitHub GraphQL.
 
-3. Must be **low-frequency + cached** (configurable TTL) to avoid abusive automation.
+* Use Strawberry Shake client
+* Respect pagination and rate limits
+* Define policy for partial GraphQL responses (`data` + `errors`)
 
-4. Must be resilient to HTML changes:
+### FR-3 Persistence (Postgres snapshots, immutable contents)
 
-   * fail gracefully with clear error messages and logs
-   * do not bring down the API host process
+Persist **snapshots** and **snapshot repository items** to Postgres.
 
-Implementation choice is open (HTML parsing/headless browser/etc.), but must be documented and testable.
+**Snapshot entity (minimum fields):**
 
----
+* `snapshotId` (server-generated, GUID or ULID; choose one)
+* `source` (e.g. `github-trending`)
+* `capturedAt` (UTC timestamp of capture)
+* `name` (optional)
+* `notes` (optional)
+* `itemCount` (derived from items count)
 
-### FR-2 Enrichment fetch (GitHub GraphQL via Strawberry Shake)
+**Snapshot repository item (time-frozen fields):**
 
-1. Given a seed repo (`owner/name`), fetch repository details via GitHub GraphQL. ([GitHub Docs][7])
-2. Use **Strawberry Shake** as the GraphQL client library for the GitHub GraphQL API. ([chillicream.com][6])
-3. Must support cursor pagination where needed and respect `first/last` limits (1–100). ([GitHub Docs][4])
-4. Must handle partial GraphQL responses (GraphQL may return partial `data` with `errors`) by a documented policy (e.g., proceed with partial data vs fail run).
+* `snapshotId` (FK)
+* `repoId` (stable: GitHub `node_id` preferred, else `owner/name`)
+* `rank` (1..N unique within snapshot)
+* `owner`, `name`, `fullName`
+* `description`, `language`
+* `stars`, `forks`, `url`
+* `repoUpdatedAt` (as known at capture time; allow null if unknown)
 
----
+**Immutability rules:**
 
-### FR-3 Persistence (Postgres only, via EF Core)
+* After snapshot creation, **snapshot items MUST NOT be updated**.
+* Only snapshot metadata (`name`, `notes`) may be updated.
 
-1. Persist enriched entities into **PostgreSQL** as the **single source of truth**.
-2. Must use stable identities:
+**DB constraints (must-have):**
 
-   * prefer GitHub node IDs when available, or
-   * deterministic keys derived from `owner/name` (document the choice)
-3. Must be **idempotent**:
+* Unique `(snapshotId, repoId)`
+* Unique `(snapshotId, rank)`
+* Optional uniqueness to prevent duplicate snapshots (choose one and document):
 
-   * re-ingesting the same repo must not create duplicates
-   * repeated runs converge to the same state (subject to time-varying upstream data)
-4. Idempotency must be enforced using:
+  * `(source, capturedAt)` unique, OR
+  * allow duplicates but expose as separate IDs
 
-   * unique constraints / indexes
-   * deterministic keys
-   * explicit upsert strategy (implementation-defined)
+**Atomic write rule (must-have):**
 
----
+* Snapshot + all items are inserted in a single transaction (all-or-nothing).
 
-### FR-4 “Projection overwrite” policy 
+### FR-4 Snapshot capture policy (replaces “projection overwrite”)
 
-FR-4 Projection policy (v1: current-state overwrite)
+* Each successful sync run creates **one new snapshot**.
+* Snapshot contents represent the trending list at capture time.
+* Subsequent runs do not mutate prior snapshots.
 
- - Sync persists current state only (no snapshots).
- - Sync overwrites mapped GitHub fields on every run.
- - Any API-driven changes to those same fields are allowed but not durable and may be overwritten by next sync.
+> Optional v1+ convenience (not required): maintain a derived “latest snapshot” pointer or view for faster access.
 
----
+### FR-5 REST API (full crude API for snapshots)
 
-### FR-5 REST API (query + ops)
+The REST API must implement:
 
-The REST API must provide:
+1. **Snapshot CRUD**
 
-1. Query/list stored repositories
+   * create snapshot (from inline repository list OR internal capture flow—see API notes below)
+   * list snapshots (newest first)
+   * get snapshot metadata
+   * update snapshot metadata (PUT/PATCH)
+   * delete snapshot
 
-   * include at least one of: sorting, filtering, pagination (document behavior)
+2. **Snapshot repository queries**
 
-2. Operational endpoints:
+   * list repos in snapshot (paged, rank-ordered)
+   * get repo entry in snapshot
 
-   * trigger a sync run
-   * view sync status/run history (basic)
-3. API can modify data
+3. **Operational endpoints**
 
-	- allow delete/untrack of stored repo records with documented behavior that next sync may recreate 
-	- them if they appear again in Trending.
+   * trigger snapshot capture (manual)
+   * view capture run history/status (basic)
 
-API documentation is required (see §9).
-
----
+> If operational endpoints are not in API.md yet, add them explicitly (see critique section below).
 
 ### FR-6 Background sync (Hangfire)
 
-1. Background processing must use **Hangfire**. ([Hangfire][1])
-2. Must support:
-
-   * recurring schedule (configurable)
-   * manual trigger (via API endpoint)
-3. Must implement **single-flight semantics**:
-
-   * prevent overlapping sync runs (global or per “scope”, as defined)
-   * define behavior when a run is requested during an active run (reject or enqueue one) and document it
-4. Must honor cancellation tokens and shut down cleanly.
-5. Hangfire must use PostgreSQL storage provider and reuse the same Postgres database (separate schema/tables are fine).
+1. Use Hangfire for recurring schedule + manual trigger.
+2. Single-flight semantics (no overlapping capture runs).
+3. Cancellation aware; clean shutdown.
+4. Hangfire uses Postgres storage (same DB).
 
 ---
 
 ## 6) Reliability and operational requirements (must-have)
 
-### RR-1 End-to-end idempotency
+### RR-1 Snapshot idempotency + dedupe policy
 
-Multiple runs must converge without duplicates.
+* A single run must not create duplicate items (constraints + transaction).
+* Define what “duplicate snapshot” means and enforce it if needed (e.g., `(source, capturedAt)` unique).
 
 ### RR-2 Retry strategy (bounded)
 
-* Implement retries for transient failures (network, 5xx, transient DB connectivity)
-* Must be bounded (max attempts) with backoff + jitter
-* Must be rate-limit-aware (avoid retry storms) ([GitHub Docs][5])
+* Bounded retries for transient failures
+* Backoff + jitter
+* Rate-limit aware (avoid retry storms)
 
 ### RR-3 Rate limiting compliance
 
-* Must detect and respect GitHub GraphQL rate/query limits ([GitHub Docs][5])
-* Must cap concurrency for outbound requests (configurable)
-* Must log rate limiting events in a reviewable way
+* Detect and respect GraphQL rate/query limits
+* Cap concurrency (configurable)
+* Log rate-limit events
 
 ### RR-4 Run tracking and auditability
 
-Persist sync metadata supporting at least:
+Persist sync metadata:
 
-* run id, start/end timestamps, status (success/fail/canceled)
-* counts (seeds processed, entities upserted)
+* run id, start/end, status
+* counts (seeds processed, snapshot items inserted)
 * error summary (non-sensitive)
+* optional: snapshotId created by the run
 
 ---
 
 ## 7) Error handling & observability (must-have)
 
-* Global exception handling for API requests
-* Consistent error response format (ProblemDetails recommended)
-* Input validation on API requests
-* Structured logging:
-
-  * correlation id / request id
-  * sync lifecycle events
-  * retry events (attempt count, delay)
-  * rate limit events
-* Never log secrets (GitHub token, connection strings)
+* Global exception handling
+* Consistent ProblemDetails error responses
+* Input validation
+* Structured logging with correlation id
+* Never log secrets
 
 ---
 
-## 8) Testing requirements (TDD is mandatory)
+## 8) Testing requirements (TDD mandatory)
 
-### TR-1 Process requirement: tests first
+### TR-1 Tests first
 
-Every new behavior must start with a failing test (**RED**) after establishing the needed contract (**CONTRACT**), then minimal implementation (**GREEN**), then refactor (**REFACTOR**).
+Every behavior starts with failing tests after contract is defined.
 
-### TR-2 Minimum test suite
+### TR-2 Minimum suite
 
-1. **Unit tests**
+* Unit tests: seed parsing, mapping, snapshot invariants, validation rules
+* Integration tests: Postgres constraints, transaction atomicity, “immutability cannot be broken”
+* E2E: capture → persist snapshot → API queries return expected snapshot + items
 
-   * seed parsing → seed contract
-   * mapping from GraphQL DTOs → domain models
-   * idempotency logic (keying, upsert decisions)
-   * rate-limit behavior policy unit tests (as feasible)
-2. **Integration tests**
+### TR-3 Docker/Testcontainers as soon as needed
 
-   * Postgres persistence behaviors (constraints, upserts)
-   * migrations applied and validated
-3. **End-to-end happy path**
-
-   * seed → enrich → persist → API query returns expected data
-
-### TR-3 Docker usage for tests (as early as needed)
-
-Docker may be introduced **as soon as needed** to run integration/E2E tests efficiently and reproducibly (locally and in CI).
-Using **Testcontainers for .NET** for Postgres is allowed/recommended (implementation choice), but not mandatory. ([Testcontainers for .NET][8])
+Introduce Docker/Testcontainers early for Postgres integration tests when it starts saving time.
 
 ---
 
 ## 9) Documentation requirements (must-have)
 
-### DR-1 README.md (required)
-
-Must include:
-
-* what the system does (one-paragraph overview)
-* high-level architecture description
-* configuration (env vars)
-* how to run locally
-* how to run tests (including Docker/Testcontainers expectations)
-* what’s implemented vs deferred
-* known limitations and next steps
-### DR-2 
-	Accepts Decision log inside docs/plan.md
-
-### DR-3 API documentation (required)
-
-Either:
-
-* OpenAPI/Swagger **or**
-* `API.md` describing endpoints, example requests/responses, and error format
+* README: overview, architecture, config, run locally, run tests, limitations
+* Decision log in `docs/plan.md`
+* API docs: API.md or OpenAPI (Swagger) (either is OK; API.md is enough for v1)
 
 ---
 
 ## 10) Configuration requirements (must-have)
 
-Configuration via environment variables (names are suggestions; document final names):
-
 * `GITHUB_TOKEN`
 * `SEED_TRENDING_URL` (default `https://github.com/trending`)
 * `SEED_CACHE_TTL`
 * `GITHUB_MAX_CONCURRENCY`
-* `GITHUB_PAGE_SIZE` (must be within 1–100 for GraphQL connections) ([GitHub Docs][4])
-* `SYNC_INTERVAL` (Hangfire recurring schedule)
+* `GITHUB_PAGE_SIZE` (1–100)
+* `SYNC_INTERVAL`
 * `POSTGRES_CONNECTION_STRING`
-* retry/backoff settings (attempts, base delay, max delay)
+* retry/backoff settings
 
 ---
 
 ## 11) Deliverables
 
-### Required
-
-* Source code repository
-* Unit + integration + E2E tests (TDD-compliant)
+* Source code
+* Unit + integration + E2E tests
 * README + API docs
 * Working local run
-
-### Docker
-
-* Docker support is allowed **as soon as needed** (especially for tests and local setup).
-* `docker-compose` is acceptable if you choose to provide it.
+* Optional docker-compose
 
 ---
 
-## 12) Evaluation criteria (for take-home and review)
+## 2) Constructive criticism of your current API.md (and what to improve)
 
-A senior implementation will be assessed on:
+### A) DTO inconsistency: you allow `notes`, but responses don’t include it
 
-* Clean Architecture boundaries (dependency direction)
-* Test quality and TDD discipline (meaningful tests, not superficial)
-* Correct handling of pagination, rate limiting, retries, idempotency ([GitHub Docs][4])
-* Code readability, maintainability, and change friendliness
-* Documentation quality (README + API docs)
-* Operational clarity (run tracking, logs, predictable behavior)
+* `SnapshotCreateRequest` has `notes`
+* `SnapshotUpdateRequest` has `notes`
+* But `SnapshotDetail` is defined as “same as summary” and your **201 response example omits `notes`**
+* Result: client can write notes but never read them back (or you’ll end up with an undocumented behavior).
+
+**Fix**
+
+* Make `SnapshotDetail` include `notes` (and probably `name`).
+* Keep `SnapshotSummary` minimal (no notes), that’s fine.
+
+### B) POST /snapshots mode is unclear (inline-only vs server capture)
+
+You hint at “dependency-failure” (503) “only if server fetch mode is implemented”, but the contract doesn’t clearly define:
+
+* How the server decides to fetch Trending+GraphQL vs store provided repos
+* What parameters control the capture (language, since/daily/weekly/monthly, etc.)
+
+**Two clean options (pick one):**
+
+1. **Keep POST /snapshots as “store-only”** (repositories must be provided)
+
+   * Remove 503 from this endpoint
+   * Add **POST /snapshots:capture** (or **POST /sync-runs**) for server-side capture
+2. **Support both modes explicitly in POST /snapshots**
+
+   * If `repositories` omitted → server capture mode
+   * Add a `capture` object: `{ "since": "daily|weekly|monthly", "language": "...", "spoke": "...?" }` (whatever you need)
+
+### C) You have a small formatting bug in pagination section
+
+Your list response example closes with four backticks ```` instead of ```.
+
+Not a runtime issue, but it will confuse you later when you diff docs or paste into PRs.
+
+### D) 409 conflict rule is “implementation-defined” but clients need something stable
+
+Right now: “409 conflict e.g. duplicate snapshot uniqueness rule (implementation-defined)”.
+
+**Fix**
+
+* Document a specific rule, even if simple:
+
+  * Example: “`(source, capturedAt)` must be unique” OR “Duplicates allowed; no 409”
+* If you allow client-provided `capturedAt`, you **must** define what happens when they reuse it.
+
+### E) `repoId` in URL path might need URL-encoding guarantees
+
+If `repoId` is GitHub node_id you’re probably safe, but if you allow `fullName` (`owner/name`) it contains `/`, which breaks a path segment.
+
+**Fix**
+
+* Either:
+
+  * enforce `repoId` to be node_id only, **or**
+  * use `{repoId}` but require it to be URL-encoded and disallow `/`, **or**
+  * change route to `/repositories?repoId=...` for lookup inside a snapshot.
+
+### F) Repository fields: decide what’s required vs realistically nullable
+
+`repoUpdatedAt` being required is fine if GraphQL always supplies it, but if seed-only mode exists, you may not have it.
+
+**Fix**
+
+* If you keep “inline list store-only”: required is OK.
+* If you add server capture mode and want resiliency: make `repoUpdatedAt` optional, or document fallback.
+
+### G) Metadata update semantics: PUT vs PATCH are both fine, but define “unknown fields”
+
+You already say “Unknown fields -> 400” for update requests. Good.
+But also define whether PUT is *replace* (set missing fields to null) or *merge* (treat missing as unchanged). Right now it reads like replace, but examples look like merge.
+
+**Fix**
+
+* Explicitly state PUT behavior.
+
+### H) Consider a convenience endpoint for “latest snapshot”
+
+Right now clients need:
+
+1. GET /snapshots (page 1)
+2. Take first item id
+3. GET /snapshots/{id}/repositories
+
+That’s OK, but you’ll want this quickly:
+
+**Add one of:**
+
+* `GET /snapshots/latest`
+* `GET /snapshots/latest/repositories`
 
 ---
-
-## 13) Live coding interview follow-up (based on the implementation)
-
-Pick one extension task during the interview (examples):
-
-1. Add/adjust one stored field or mapping rule, tests first
-2. Tighten idempotency guarantees (duplicate seeds, run replays)
-3. Improve rate-limit behavior (throttling/backoff, concurrency caps) ([GitHub Docs][5])
-4. Add a new query capability to the API (filter/sort/pagination), tests first
-5. Modify the overwrite/merge policy with tests and an ADR
-
----
-
-## 14) Reference constraints (for implementers)
-
-* GitHub GraphQL API docs ([GitHub Docs][7])
-* GitHub GraphQL pagination rules (first/last 1–100) ([GitHub Docs][4])
-* GitHub GraphQL rate/query limits ([GitHub Docs][5])
-* No official Trending API statement (GitHub Community discussion) ([GitHub][2])
-* Strawberry Shake docs / project ([chillicream.com][6])
-* Hangfire docs ([Hangfire][1])
-* Testcontainers for .NET (Postgres module / guide) ([Testcontainers for .NET][8])
-
----
-
-
-[1]: https://www.hangfire.io/?utm_source=chatgpt.com "Hangfire – Background jobs and workers for .NET and .NET ..."
-[2]: https://github.com/orgs/community/discussions/161519?utm_source=chatgpt.com "REST API Endpoints for /explore and /trending #161519"
-[3]: https://docs.github.com/en/graphql/guides/using-graphql-clients?utm_source=chatgpt.com "Using GraphQL Clients"
-[4]: https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api?utm_source=chatgpt.com "Using pagination in the GraphQL API"
-[5]: https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api?utm_source=chatgpt.com "Rate limits and query limits for the GraphQL API"
-[6]: https://chillicream.com/docs/strawberryshake/v14/get-started/?utm_source=chatgpt.com "Get started with Strawberry Shake and Blazor"
-[7]: https://docs.github.com/en/graphql?utm_source=chatgpt.com "GitHub GraphQL API documentation"
-[8]: https://dotnet.testcontainers.org/modules/postgres/?utm_source=chatgpt.com "PostgreSQL"
