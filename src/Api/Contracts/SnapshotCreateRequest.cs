@@ -7,4 +7,4 @@ public sealed record SnapshotCreateRequest(
     string? Name,
     string? Notes,
     string? CapturedAt,
-    IReadOnlyList<RepositorySnapshotDto>? Repositories);
+    IReadOnlyList<RepositorySnapshotDto> Repositories);

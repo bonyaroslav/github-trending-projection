@@ -5,4 +5,5 @@ public sealed record SnapshotDetailDto(
     string CapturedAt,
     string Source,
     string? Name,
+    string? Notes,
     int ItemCount);

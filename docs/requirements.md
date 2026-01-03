@@ -186,10 +186,10 @@ The REST API must implement:
 
 1. **Snapshot CRUD**
 
-   * create snapshot (from inline repository list OR internal capture flow—see API notes below)
+   * create snapshot from inline repository list (manual)
    * list snapshots (newest first)
    * get snapshot metadata
-   * update snapshot metadata (PUT/PATCH)
+   * update snapshot metadata (PATCH only)
    * delete snapshot
 
 2. **Snapshot repository queries**
@@ -202,7 +202,7 @@ The REST API must implement:
    * trigger snapshot capture (manual)
    * view capture run history/status (basic)
 
-> If operational endpoints are not in API.md yet, add them explicitly (see critique section below).
+> Server-side capture and run tracking are exposed via `/snapshots:capture` and `/sync-runs`.
 
 ### FR-6 Background sync (Hangfire)
 
@@ -302,98 +302,33 @@ Introduce Docker/Testcontainers early for Postgres integration tests when it sta
 
 ---
 
-## 2) Constructive criticism of your current API.md (and what to improve)
+## 2) API contract alignment decisions (v1)
 
-### A) DTO inconsistency: you allow `notes`, but responses don’t include it
+### A) Manual snapshot creation only on POST /snapshots
 
-* `SnapshotCreateRequest` has `notes`
-* `SnapshotUpdateRequest` has `notes`
-* But `SnapshotDetail` is defined as “same as summary” and your **201 response example omits `notes`**
-* Result: client can write notes but never read them back (or you’ll end up with an undocumented behavior).
+* `POST /snapshots` stores an inline repositories list only.
+* Server-side capture is exposed separately via `/snapshots:capture` and `/sync-runs`.
 
-**Fix**
+### B) Metadata updates are PATCH-only
 
-* Make `SnapshotDetail` include `notes` (and probably `name`).
-* Keep `SnapshotSummary` minimal (no notes), that’s fine.
+* `PATCH /snapshots/{snapshotId}` is the only metadata update endpoint.
+* Unknown fields yield `400` validation error.
 
-### B) POST /snapshots mode is unclear (inline-only vs server capture)
+### C) Pagination behavior is deterministic for tests
 
-You hint at “dependency-failure” (503) “only if server fetch mode is implemented”, but the contract doesn’t clearly define:
+* `totalPages = ceil(totalItems / pageSize)`; when `totalItems = 0`, `totalPages = 0`.
+* If `page` is greater than `totalPages`, return `200` with empty `items`.
 
-* How the server decides to fetch Trending+GraphQL vs store provided repos
-* What parameters control the capture (language, since/daily/weekly/monthly, etc.)
+### D) Snapshot detail returns notes
 
-**Two clean options (pick one):**
+* `SnapshotDetail` includes `notes` and `name`; `SnapshotSummary` stays minimal.
 
-1. **Keep POST /snapshots as “store-only”** (repositories must be provided)
+### E) Resource identifiers are unambiguous
 
-   * Remove 503 from this endpoint
-   * Add **POST /snapshots:capture** (or **POST /sync-runs**) for server-side capture
-2. **Support both modes explicitly in POST /snapshots**
+* `repoId` in paths must be URL-encoded; use `/repositories/by-full-name` for `owner/name`.
 
-   * If `repositories` omitted → server capture mode
-   * Add a `capture` object: `{ "since": "daily|weekly|monthly", "language": "...", "spoke": "...?" }` (whatever you need)
+### F) Location header on create
 
-### C) You have a small formatting bug in pagination section
-
-Your list response example closes with four backticks ```` instead of ```.
-
-Not a runtime issue, but it will confuse you later when you diff docs or paste into PRs.
-
-### D) 409 conflict rule is “implementation-defined” but clients need something stable
-
-Right now: “409 conflict e.g. duplicate snapshot uniqueness rule (implementation-defined)”.
-
-**Fix**
-
-* Document a specific rule, even if simple:
-
-  * Example: “`(source, capturedAt)` must be unique” OR “Duplicates allowed; no 409”
-* If you allow client-provided `capturedAt`, you **must** define what happens when they reuse it.
-
-### E) `repoId` in URL path might need URL-encoding guarantees
-
-If `repoId` is GitHub node_id you’re probably safe, but if you allow `fullName` (`owner/name`) it contains `/`, which breaks a path segment.
-
-**Fix**
-
-* Either:
-
-  * enforce `repoId` to be node_id only, **or**
-  * use `{repoId}` but require it to be URL-encoded and disallow `/`, **or**
-  * change route to `/repositories?repoId=...` for lookup inside a snapshot.
-
-### F) Repository fields: decide what’s required vs realistically nullable
-
-`repoUpdatedAt` being required is fine if GraphQL always supplies it, but if seed-only mode exists, you may not have it.
-
-**Fix**
-
-* If you keep “inline list store-only”: required is OK.
-* If you add server capture mode and want resiliency: make `repoUpdatedAt` optional, or document fallback.
-
-### G) Metadata update semantics: PUT vs PATCH are both fine, but define “unknown fields”
-
-You already say “Unknown fields -> 400” for update requests. Good.
-But also define whether PUT is *replace* (set missing fields to null) or *merge* (treat missing as unchanged). Right now it reads like replace, but examples look like merge.
-
-**Fix**
-
-* Explicitly state PUT behavior.
-
-### H) Consider a convenience endpoint for “latest snapshot”
-
-Right now clients need:
-
-1. GET /snapshots (page 1)
-2. Take first item id
-3. GET /snapshots/{id}/repositories
-
-That’s OK, but you’ll want this quickly:
-
-**Add one of:**
-
-* `GET /snapshots/latest`
-* `GET /snapshots/latest/repositories`
+* `201 Created` responses include `Location: /api/v1/snapshots/{snapshotId}`.
 
 ---

@@ -43,11 +43,13 @@ All list responses return:
   "totalItems": 0,
   "totalPages": 0
 }
-````
+```
 
 Notes:
 
 * `totalItems` / `totalPages` MUST be provided for v1 simplicity.
+* `totalPages = ceil(totalItems / pageSize)`; when `totalItems = 0`, `totalPages = 0`.
+* If `page` is greater than `totalPages`, return `200` with an empty `items` array.
 * If calculating totals becomes expensive later, v2 may switch to cursor pagination.
 
 ---
@@ -116,9 +118,9 @@ Notes:
 
 * `id` (string, required) — snapshotId
 * `capturedAt` (string, required, ISO 8601 UTC)
-* `source` (string, required) — e.g. `"github-trending"`, `"manual"`
+* `source` (string, required) - e.g. `"github-trending"`, `"manual"`
 * `name` (string, optional)
-* `itemCount` (int, required)
+* `itemCount` (int, required) - number of repositories captured in the snapshot
 
 Example:
 
@@ -203,6 +205,7 @@ Semantics:
 
 * Fields omitted are unchanged.
 * Fields present with `null` clear the value.
+* Unknown fields MUST result in `400` validation error.
 
 ```json
 {
@@ -333,7 +336,7 @@ Request body: `SnapshotCreateRequest`
 
 Responses:
 
-* `201 Created` with `SnapshotDetail`
+* `201 Created` with `SnapshotDetail` and `Location: /api/v1/snapshots/{snapshotId}`
 * `400` validation
 * `409` if `(source, capturedAt)` already exists
 
@@ -613,4 +616,3 @@ References (for future readers)
 - ASP.NET Core API error handling + ProblemDetails (AddProblemDetails):
   https://learn.microsoft.com/en-us/aspnet/core/fundamentals/error-handling-api?view=aspnetcore-10.0
 -->
-
