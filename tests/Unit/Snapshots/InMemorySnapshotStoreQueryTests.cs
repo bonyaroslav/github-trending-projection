@@ -7,34 +7,34 @@ namespace Unit.Snapshots;
 public sealed class InMemorySnapshotStoreQueryTests
 {
     [Fact]
-    public void QueryRepositories_ReturnsNull_WhenSnapshotMissing()
+    public async Task QueryRepositories_ReturnsNull_WhenSnapshotMissing()
     {
         var store = new InMemorySnapshotStore();
 
-        var result = store.QueryRepositories("missing", new RepositoryQueryParameters(
+        var result = await store.QueryRepositoriesAsync("missing", new RepositoryQueryParameters(
             Page: 1,
             PageSize: 20,
             Sort: "rank",
             Order: "asc",
             Query: null,
-            Language: null));
+            Language: null), CancellationToken.None);
 
         Assert.Null(result);
     }
 
     [Fact]
-    public void QueryRepositories_ReturnsPagedSortedResults()
+    public async Task QueryRepositories_ReturnsPagedSortedResults()
     {
         var store = new InMemorySnapshotStore();
-        store.TryAdd(BuildSnapshot());
+        await store.TryAddAsync(BuildSnapshot(), CancellationToken.None);
 
-        var result = store.QueryRepositories("snap-1", new RepositoryQueryParameters(
+        var result = await store.QueryRepositoriesAsync("snap-1", new RepositoryQueryParameters(
             Page: 1,
             PageSize: 1,
             Sort: "stars",
             Order: "desc",
             Query: null,
-            Language: "C#"));
+            Language: "C#"), CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal(2, result!.TotalItems);
@@ -43,18 +43,18 @@ public sealed class InMemorySnapshotStoreQueryTests
     }
 
     [Fact]
-    public void QueryRepositories_FiltersByQuery()
+    public async Task QueryRepositories_FiltersByQuery()
     {
         var store = new InMemorySnapshotStore();
-        store.TryAdd(BuildSnapshot());
+        await store.TryAddAsync(BuildSnapshot(), CancellationToken.None);
 
-        var result = store.QueryRepositories("snap-1", new RepositoryQueryParameters(
+        var result = await store.QueryRepositoriesAsync("snap-1", new RepositoryQueryParameters(
             Page: 1,
             PageSize: 20,
             Sort: "rank",
             Order: "asc",
             Query: "runtime",
-            Language: null));
+            Language: null), CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Single(result!.Items);

@@ -6,13 +6,13 @@ namespace Unit.Snapshots;
 public sealed class InMemorySnapshotStoreTests
 {
     [Fact]
-    public void TryAdd_ReturnsTrue_AndGetReturnsSnapshot()
+    public async Task TryAdd_ReturnsTrue_AndGetReturnsSnapshot()
     {
         var store = new InMemorySnapshotStore();
         var snapshot = BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z");
 
-        var added = store.TryAdd(snapshot);
-        var loaded = store.Get("snap-1");
+        var added = await store.TryAddAsync(snapshot, CancellationToken.None);
+        var loaded = await store.GetAsync("snap-1", CancellationToken.None);
 
         Assert.True(added);
         Assert.NotNull(loaded);
@@ -20,38 +20,38 @@ public sealed class InMemorySnapshotStoreTests
     }
 
     [Fact]
-    public void TryAdd_ReturnsFalse_WhenCapturedAtAndSourceDuplicate()
+    public async Task TryAdd_ReturnsFalse_WhenCapturedAtAndSourceDuplicate()
     {
         var store = new InMemorySnapshotStore();
         var first = BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z");
         var second = BuildSnapshot(id: "snap-2", capturedAt: "2026-01-02T18:45:00Z");
 
-        var addedFirst = store.TryAdd(first);
-        var addedSecond = store.TryAdd(second);
+        var addedFirst = await store.TryAddAsync(first, CancellationToken.None);
+        var addedSecond = await store.TryAddAsync(second, CancellationToken.None);
 
         Assert.True(addedFirst);
         Assert.False(addedSecond);
     }
 
     [Fact]
-    public void List_ReturnsAllSnapshots()
+    public async Task List_ReturnsAllSnapshots()
     {
         var store = new InMemorySnapshotStore();
-        store.TryAdd(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"));
-        store.TryAdd(BuildSnapshot(id: "snap-2", capturedAt: "2026-01-02T18:50:00Z"));
+        await store.TryAddAsync(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"), CancellationToken.None);
+        await store.TryAddAsync(BuildSnapshot(id: "snap-2", capturedAt: "2026-01-02T18:50:00Z"), CancellationToken.None);
 
-        var list = store.List();
+        var list = await store.ListAsync(CancellationToken.None);
 
         Assert.Equal(2, list.Count);
     }
 
     [Fact]
-    public void UpdateMetadata_UpdatesNameAndNotes()
+    public async Task UpdateMetadata_UpdatesNameAndNotes()
     {
         var store = new InMemorySnapshotStore();
-        store.TryAdd(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"));
+        await store.TryAddAsync(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"), CancellationToken.None);
 
-        var updated = store.UpdateMetadata("snap-1", true, "Updated", true, "Notes");
+        var updated = await store.UpdateMetadataAsync("snap-1", true, "Updated", true, "Notes", CancellationToken.None);
 
         Assert.NotNull(updated);
         Assert.Equal("Updated", updated!.Name);
@@ -59,15 +59,16 @@ public sealed class InMemorySnapshotStoreTests
     }
 
     [Fact]
-    public void Remove_ReturnsTrue_AndSnapshotIsGone()
+    public async Task Remove_ReturnsTrue_AndSnapshotIsGone()
     {
         var store = new InMemorySnapshotStore();
-        store.TryAdd(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"));
+        await store.TryAddAsync(BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z"), CancellationToken.None);
 
-        var removed = store.Remove("snap-1");
+        var removed = await store.RemoveAsync("snap-1", CancellationToken.None);
 
         Assert.True(removed);
-        Assert.Null(store.Get("snap-1"));
+        var snapshot = await store.GetAsync("snap-1", CancellationToken.None);
+        Assert.Null(snapshot);
     }
 
     private static Snapshot BuildSnapshot(string id, string capturedAt)

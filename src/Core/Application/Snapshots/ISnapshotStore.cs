@@ -5,10 +5,10 @@ namespace Core.Application.Snapshots;
 
 public interface ISnapshotStore
 {
-    bool TryAdd(Snapshot snapshot);
-    IReadOnlyList<Snapshot> List();
-    Snapshot? Get(string id);
-    RepositoryPage? QueryRepositories(string snapshotId, RepositoryQueryParameters parameters);
-    Snapshot? UpdateMetadata(string id, bool hasName, string? name, bool hasNotes, string? notes);
-    bool Remove(string id);
+    Task<bool> TryAddAsync(Snapshot snapshot, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Snapshot>> ListAsync(CancellationToken cancellationToken);
+    Task<Snapshot?> GetAsync(string id, CancellationToken cancellationToken);
+    Task<RepositoryPage?> QueryRepositoriesAsync(string snapshotId, RepositoryQueryParameters parameters, CancellationToken cancellationToken);
+    Task<Snapshot?> UpdateMetadataAsync(string id, bool hasName, string? name, bool hasNotes, string? notes, CancellationToken cancellationToken);
+    Task<bool> RemoveAsync(string id, CancellationToken cancellationToken);
 }

@@ -8,38 +8,45 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
     private readonly object _lock = new();
     private readonly List<Snapshot> _snapshots = new();
 
-    public bool TryAdd(Snapshot snapshot)
+    public Task<bool> TryAddAsync(Snapshot snapshot, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             if (_snapshots.Any(existing => existing.Source == snapshot.Source && existing.CapturedAt == snapshot.CapturedAt))
             {
-                return false;
+                return Task.FromResult(false);
             }
 
             _snapshots.Add(snapshot);
-            return true;
+            return Task.FromResult(true);
         }
     }
 
-    public IReadOnlyList<Snapshot> List()
+    public Task<IReadOnlyList<Snapshot>> ListAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
-            return _snapshots.ToList();
+            return Task.FromResult<IReadOnlyList<Snapshot>>(_snapshots.ToList());
         }
     }
 
-    public Snapshot? Get(string id)
+    public Task<Snapshot?> GetAsync(string id, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
-            return _snapshots.FirstOrDefault(snapshot => snapshot.Id == id);
+            return Task.FromResult(_snapshots.FirstOrDefault(snapshot => snapshot.Id == id));
         }
     }
 
-    public RepositoryPage? QueryRepositories(string snapshotId, RepositoryQueryParameters parameters)
+    public Task<RepositoryPage?> QueryRepositoriesAsync(
+        string snapshotId,
+        RepositoryQueryParameters parameters,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         Snapshot? snapshot;
         lock (_lock)
         {
@@ -48,7 +55,7 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
 
         if (snapshot is null)
         {
-            return null;
+            return Task.FromResult<RepositoryPage?>(null);
         }
 
         var filtered = snapshot.Repositories.AsEnumerable();
@@ -77,17 +84,24 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
             .Take(parameters.PageSize)
             .ToList();
 
-        return new RepositoryPage(items, totalItems);
+        return Task.FromResult<RepositoryPage?>(new RepositoryPage(items, totalItems));
     }
 
-    public Snapshot? UpdateMetadata(string id, bool hasName, string? name, bool hasNotes, string? notes)
+    public Task<Snapshot?> UpdateMetadataAsync(
+        string id,
+        bool hasName,
+        string? name,
+        bool hasNotes,
+        string? notes,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             var snapshot = _snapshots.FirstOrDefault(item => item.Id == id);
             if (snapshot is null)
             {
-                return null;
+                return Task.FromResult<Snapshot?>(null);
             }
 
             if (hasName)
@@ -100,22 +114,23 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
                 snapshot.Notes = notes;
             }
 
-            return snapshot;
+            return Task.FromResult<Snapshot?>(snapshot);
         }
     }
 
-    public bool Remove(string id)
+    public Task<bool> RemoveAsync(string id, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (_lock)
         {
             var index = _snapshots.FindIndex(snapshot => snapshot.Id == id);
             if (index < 0)
             {
-                return false;
+                return Task.FromResult(false);
             }
 
             _snapshots.RemoveAt(index);
-            return true;
+            return Task.FromResult(true);
         }
     }
 

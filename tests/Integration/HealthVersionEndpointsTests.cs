@@ -38,6 +38,14 @@ public sealed class HealthVersionEndpointsTests : IAsyncLifetime
     }
 
     [DockerFact]
+    public async Task GetReady_ReturnsOk()
+    {
+        var response = await _client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [DockerFact]
     public async Task GetVersion_ReturnsVersionPayload()
     {
         var response = await _client.GetAsync("/version");

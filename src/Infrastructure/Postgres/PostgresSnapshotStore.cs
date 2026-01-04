@@ -13,21 +13,21 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
         _dbContext = dbContext;
     }
 
-    public bool TryAdd(Snapshot snapshot)
+    public async Task<bool> TryAddAsync(Snapshot snapshot, CancellationToken cancellationToken)
     {
-        using var transaction = _dbContext.Database.BeginTransaction();
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
 
         try
         {
             var record = SnapshotRecordMapper.ToRecord(snapshot);
             _dbContext.Snapshots.Add(record);
-            _dbContext.SaveChanges();
-            transaction.Commit();
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return true;
         }
         catch (DbUpdateException exception)
         {
-            transaction.Rollback();
+            await transaction.RollbackAsync(cancellationToken);
             if (DbUpdateExceptionClassifier.IsUniqueViolation(exception))
             {
                 return false;
@@ -37,31 +37,36 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
         }
     }
 
-    public IReadOnlyList<Snapshot> List()
+    public async Task<IReadOnlyList<Snapshot>> ListAsync(CancellationToken cancellationToken)
     {
-        return _dbContext.Snapshots
+        var records = await _dbContext.Snapshots
             .AsNoTracking()
             .Include(snapshot => snapshot.Repositories)
-            .ToList()
+            .ToListAsync(cancellationToken);
+
+        return records
             .Select(SnapshotRecordMapper.ToDomain)
             .ToList();
     }
 
-    public Snapshot? Get(string id)
+    public async Task<Snapshot?> GetAsync(string id, CancellationToken cancellationToken)
     {
-        var record = _dbContext.Snapshots
+        var record = await _dbContext.Snapshots
             .AsNoTracking()
             .Include(snapshot => snapshot.Repositories)
-            .FirstOrDefault(snapshot => snapshot.Id == id);
+            .FirstOrDefaultAsync(snapshot => snapshot.Id == id, cancellationToken);
 
         return record is null ? null : SnapshotRecordMapper.ToDomain(record);
     }
 
-    public RepositoryPage? QueryRepositories(string snapshotId, RepositoryQueryParameters parameters)
+    public async Task<RepositoryPage?> QueryRepositoriesAsync(
+        string snapshotId,
+        RepositoryQueryParameters parameters,
+        CancellationToken cancellationToken)
     {
-        var snapshotExists = _dbContext.Snapshots
+        var snapshotExists = await _dbContext.Snapshots
             .AsNoTracking()
-            .Any(snapshot => snapshot.Id == snapshotId);
+            .AnyAsync(snapshot => snapshot.Id == snapshotId, cancellationToken);
 
         if (!snapshotExists)
         {
@@ -88,25 +93,33 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
                 EF.Functions.ILike(repository.Language, language));
         }
 
-        var totalItems = query.Count();
+        var totalItems = await query.CountAsync(cancellationToken);
 
         query = ApplySort(query, parameters.Sort, parameters.Order);
 
-        var items = query
+        var items = await query
             .Skip((parameters.Page - 1) * parameters.PageSize)
             .Take(parameters.PageSize)
-            .ToList()
+            .ToListAsync(cancellationToken);
+
+        var mapped = items
             .Select(SnapshotRecordMapper.ToDomainRepository)
             .ToList();
 
-        return new RepositoryPage(items, totalItems);
+        return new RepositoryPage(mapped, totalItems);
     }
 
-    public Snapshot? UpdateMetadata(string id, bool hasName, string? name, bool hasNotes, string? notes)
+    public async Task<Snapshot?> UpdateMetadataAsync(
+        string id,
+        bool hasName,
+        string? name,
+        bool hasNotes,
+        string? notes,
+        CancellationToken cancellationToken)
     {
-        var record = _dbContext.Snapshots
+        var record = await _dbContext.Snapshots
             .Include(snapshot => snapshot.Repositories)
-            .FirstOrDefault(snapshot => snapshot.Id == id);
+            .FirstOrDefaultAsync(snapshot => snapshot.Id == id, cancellationToken);
 
         if (record is null)
         {
@@ -123,21 +136,22 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
             record.Notes = notes;
         }
 
-        _dbContext.SaveChanges();
+        await _dbContext.SaveChangesAsync(cancellationToken);
 
         return SnapshotRecordMapper.ToDomain(record);
     }
 
-    public bool Remove(string id)
+    public async Task<bool> RemoveAsync(string id, CancellationToken cancellationToken)
     {
-        var record = _dbContext.Snapshots.FirstOrDefault(snapshot => snapshot.Id == id);
+        var record = await _dbContext.Snapshots
+            .FirstOrDefaultAsync(snapshot => snapshot.Id == id, cancellationToken);
         if (record is null)
         {
             return false;
         }
 
         _dbContext.Snapshots.Remove(record);
-        _dbContext.SaveChanges();
+        await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }
 

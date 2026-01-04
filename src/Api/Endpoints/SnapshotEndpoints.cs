@@ -24,14 +24,18 @@ internal static class SnapshotEndpoints
         return group;
     }
 
-    private static IResult ListSnapshots(int? page, int? pageSize, ISnapshotStore store)
+    private static async Task<IResult> ListSnapshots(
+        int? page,
+        int? pageSize,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
         if (!SnapshotQuery.TryResolvePagination(page, pageSize, out var parameters, out var errors))
         {
             return Results.ValidationProblem(errors!);
         }
 
-        var snapshots = store.List()
+        var snapshots = (await store.ListAsync(cancellationToken))
             .OrderByDescending(snapshot => snapshot.CapturedAtUtc)
             .ToList();
 
@@ -56,10 +60,11 @@ internal static class SnapshotEndpoints
         return Results.Ok(response);
     }
 
-    private static IResult CreateSnapshot(
+    private static async Task<IResult> CreateSnapshot(
         SnapshotCreateRequest request,
         ISnapshotStore store,
-        IValidator<SnapshotCreateCommand> validator)
+        IValidator<SnapshotCreateCommand> validator,
+        CancellationToken cancellationToken)
     {
         var validationResult = validator.Validate(request.ToCommand());
 
@@ -84,7 +89,7 @@ internal static class SnapshotEndpoints
             request.Notes,
             request.Repositories.ToDomainRepositories());
 
-        if (!store.TryAdd(snapshot))
+        if (!await store.TryAddAsync(snapshot, cancellationToken))
         {
             return ApiErrors.Conflict("A snapshot with the same source and capturedAt already exists.");
         }
@@ -94,16 +99,23 @@ internal static class SnapshotEndpoints
         return Results.Created($"/api/v1/snapshots/{snapshot.Id}", detail);
     }
 
-    private static IResult GetSnapshot(string snapshotId, ISnapshotStore store)
+    private static async Task<IResult> GetSnapshot(
+        string snapshotId,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
-        var snapshot = store.Get(snapshotId);
+        var snapshot = await store.GetAsync(snapshotId, cancellationToken);
 
         return snapshot is null
             ? ApiErrors.NotFound("Snapshot not found.")
             : Results.Ok(snapshot.ToDetailDto());
     }
 
-    private static async Task<IResult> PatchSnapshot(string snapshotId, HttpRequest request, ISnapshotStore store)
+    private static async Task<IResult> PatchSnapshot(
+        string snapshotId,
+        HttpRequest request,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
         JsonDocument document;
         try
@@ -149,7 +161,7 @@ internal static class SnapshotEndpoints
                 return ApiErrors.ValidationProblem("body", "At least one field must be provided.");
             }
 
-            var updated = store.UpdateMetadata(snapshotId, hasName, name, hasNotes, notes);
+            var updated = await store.UpdateMetadataAsync(snapshotId, hasName, name, hasNotes, notes, cancellationToken);
 
             return updated is null
                 ? ApiErrors.NotFound("Snapshot not found.")
@@ -157,14 +169,17 @@ internal static class SnapshotEndpoints
         }
     }
 
-    private static IResult DeleteSnapshot(string snapshotId, ISnapshotStore store)
+    private static async Task<IResult> DeleteSnapshot(
+        string snapshotId,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
-        return store.Remove(snapshotId)
+        return await store.RemoveAsync(snapshotId, cancellationToken)
             ? Results.NoContent()
             : ApiErrors.NotFound("Snapshot not found.");
     }
 
-    private static IResult ListSnapshotRepositories(
+    private static async Task<IResult> ListSnapshotRepositories(
         string snapshotId,
         int? page,
         int? pageSize,
@@ -172,7 +187,8 @@ internal static class SnapshotEndpoints
         string? language,
         string? sort,
         string? order,
-        ISnapshotStore store)
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
         if (!SnapshotQuery.TryResolvePagination(page, pageSize, out var parameters, out var paginationErrors))
         {
@@ -192,7 +208,7 @@ internal static class SnapshotEndpoints
             q,
             language);
 
-        var repositoryPage = store.QueryRepositories(snapshotId, queryParameters);
+        var repositoryPage = await store.QueryRepositoriesAsync(snapshotId, queryParameters, cancellationToken);
         if (repositoryPage is null)
         {
             return ApiErrors.NotFound("Snapshot not found.");
@@ -217,9 +233,13 @@ internal static class SnapshotEndpoints
         return Results.Ok(response);
     }
 
-    private static IResult GetSnapshotRepository(string snapshotId, string repoId, ISnapshotStore store)
+    private static async Task<IResult> GetSnapshotRepository(
+        string snapshotId,
+        string repoId,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
-        var snapshot = store.Get(snapshotId);
+        var snapshot = await store.GetAsync(snapshotId, cancellationToken);
         if (snapshot is null)
         {
             return ApiErrors.NotFound("Snapshot not found.");
@@ -232,14 +252,18 @@ internal static class SnapshotEndpoints
             : Results.Ok(repository.ToDto());
     }
 
-    private static IResult GetSnapshotRepositoryByFullName(string snapshotId, string? fullName, ISnapshotStore store)
+    private static async Task<IResult> GetSnapshotRepositoryByFullName(
+        string snapshotId,
+        string? fullName,
+        ISnapshotStore store,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(fullName))
         {
             return ApiErrors.ValidationProblem("fullName", "fullName is required.");
         }
 
-        var snapshot = store.Get(snapshotId);
+        var snapshot = await store.GetAsync(snapshotId, cancellationToken);
         if (snapshot is null)
         {
             return ApiErrors.NotFound("Snapshot not found.");

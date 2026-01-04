@@ -22,14 +22,14 @@ public sealed class PostgresSnapshotStoreTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [DockerFact]
-    public void TryAdd_PersistsSnapshotWithRepositories()
+    public async Task TryAdd_PersistsSnapshotWithRepositories()
     {
         using var context = new SnapshotDbContext(_fixture.CreateOptions());
         var store = new PostgresSnapshotStore(context);
         var snapshot = BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z");
 
-        var added = store.TryAdd(snapshot);
-        var loaded = store.Get("snap-1");
+        var added = await store.TryAddAsync(snapshot, CancellationToken.None);
+        var loaded = await store.GetAsync("snap-1", CancellationToken.None);
 
         Assert.True(added);
         Assert.NotNull(loaded);
@@ -38,22 +38,22 @@ public sealed class PostgresSnapshotStoreTests : IAsyncLifetime
     }
 
     [DockerFact]
-    public void TryAdd_ReturnsFalse_WhenCapturedAtAndSourceDuplicate()
+    public async Task TryAdd_ReturnsFalse_WhenCapturedAtAndSourceDuplicate()
     {
         using var context = new SnapshotDbContext(_fixture.CreateOptions());
         var store = new PostgresSnapshotStore(context);
         var first = BuildSnapshot(id: "snap-1", capturedAt: "2026-01-02T18:45:00Z");
         var second = BuildSnapshot(id: "snap-2", capturedAt: "2026-01-02T18:45:00Z");
 
-        var addedFirst = store.TryAdd(first);
-        var addedSecond = store.TryAdd(second);
+        var addedFirst = await store.TryAddAsync(first, CancellationToken.None);
+        var addedSecond = await store.TryAddAsync(second, CancellationToken.None);
 
         Assert.True(addedFirst);
         Assert.False(addedSecond);
     }
 
     [DockerFact]
-    public void TryAdd_RollsBack_WhenRepositoryConstraintViolated()
+    public async Task TryAdd_RollsBack_WhenRepositoryConstraintViolated()
     {
         using var context = new SnapshotDbContext(_fixture.CreateOptions());
         var store = new PostgresSnapshotStore(context);
@@ -73,8 +73,8 @@ public sealed class PostgresSnapshotStoreTests : IAsyncLifetime
             "Optional notes",
             repositories);
 
-        var added = store.TryAdd(snapshot);
-        var loaded = store.Get("snap-1");
+        var added = await store.TryAddAsync(snapshot, CancellationToken.None);
+        var loaded = await store.GetAsync("snap-1", CancellationToken.None);
 
         Assert.False(added);
         Assert.Null(loaded);
