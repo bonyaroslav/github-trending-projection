@@ -38,6 +38,48 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
         }
     }
 
+    public RepositoryPage? QueryRepositories(string snapshotId, RepositoryQueryParameters parameters)
+    {
+        Snapshot? snapshot;
+        lock (_lock)
+        {
+            snapshot = _snapshots.FirstOrDefault(item => item.Id == snapshotId);
+        }
+
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        var filtered = snapshot.Repositories.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(parameters.Query))
+        {
+            var query = parameters.Query.Trim();
+            filtered = filtered.Where(repository =>
+                repository.FullName.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                (repository.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false));
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.Language))
+        {
+            var language = parameters.Language.Trim();
+            filtered = filtered.Where(repository =>
+                repository.Language is not null &&
+                string.Equals(repository.Language, language, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var ordered = ApplySort(filtered, parameters.Sort, parameters.Order);
+        var totalItems = ordered.Count();
+
+        var items = ordered
+            .Skip((parameters.Page - 1) * parameters.PageSize)
+            .Take(parameters.PageSize)
+            .ToList();
+
+        return new RepositoryPage(items, totalItems);
+    }
+
     public Snapshot? UpdateMetadata(string id, bool hasName, string? name, bool hasNotes, string? notes)
     {
         lock (_lock)
@@ -75,5 +117,21 @@ public sealed class InMemorySnapshotStore : ISnapshotStore
             _snapshots.RemoveAt(index);
             return true;
         }
+    }
+
+    private static IOrderedEnumerable<RepositorySnapshot> ApplySort(
+        IEnumerable<RepositorySnapshot> repositories,
+        string sort,
+        string order)
+    {
+        return (sort, order) switch
+        {
+            ("stars", "asc") => repositories.OrderBy(repository => repository.Stars).ThenBy(repository => repository.Rank),
+            ("stars", "desc") => repositories.OrderByDescending(repository => repository.Stars).ThenBy(repository => repository.Rank),
+            ("forks", "asc") => repositories.OrderBy(repository => repository.Forks).ThenBy(repository => repository.Rank),
+            ("forks", "desc") => repositories.OrderByDescending(repository => repository.Forks).ThenBy(repository => repository.Rank),
+            ("rank", "desc") => repositories.OrderByDescending(repository => repository.Rank),
+            _ => repositories.OrderBy(repository => repository.Rank)
+        };
     }
 }

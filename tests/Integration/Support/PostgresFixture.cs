@@ -46,7 +46,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         var port = _container.GetMappedPublicPort(5432);
         ConnectionString = $"Host=localhost;Port={port};Database=snapshots;Username=postgres;Password=postgres;Include Error Detail=true";
-        await EnsureCreatedAsync();
+        await ApplyMigrationsAsync();
     }
 
     public async Task DisposeAsync()
@@ -79,14 +79,14 @@ public sealed class PostgresFixture : IAsyncLifetime
         }
 
         await using var context = new SnapshotDbContext(CreateOptions());
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.MigrateAsync();
         await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE \"snapshot_repositories\", \"snapshots\";");
     }
 
-    private async Task EnsureCreatedAsync()
+    private async Task ApplyMigrationsAsync()
     {
         await using var context = new SnapshotDbContext(CreateOptions());
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.MigrateAsync();
     }
 
     private static bool DockerTestsEnabled =>

@@ -184,24 +184,26 @@ internal static class SnapshotEndpoints
             return Results.ValidationProblem(sortErrors!);
         }
 
-        var snapshot = store.Get(snapshotId);
-        if (snapshot is null)
+        var queryParameters = new RepositoryQueryParameters(
+            parameters.Page,
+            parameters.PageSize,
+            sortParameters.Sort,
+            sortParameters.Order,
+            q,
+            language);
+
+        var repositoryPage = store.QueryRepositories(snapshotId, queryParameters);
+        if (repositoryPage is null)
         {
             return ApiErrors.NotFound("Snapshot not found.");
         }
 
-        var repositories = SnapshotQuery.ApplyRepositoryFilters(snapshot.Repositories, q, language);
-        var ordered = SnapshotQuery.ApplyRepositorySort(repositories, sortParameters.Sort, sortParameters.Order);
-        var orderedList = ordered.ToList();
-
-        var totalItems = orderedList.Count;
+        var totalItems = repositoryPage.TotalItems;
         var totalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)parameters.PageSize);
 
         var items = totalItems == 0
             ? new List<RepositorySnapshotDto>()
-            : orderedList
-                .Skip((parameters.Page - 1) * parameters.PageSize)
-                .Take(parameters.PageSize)
+            : repositoryPage.Items
                 .Select(repository => repository.ToDto())
                 .ToList();
 

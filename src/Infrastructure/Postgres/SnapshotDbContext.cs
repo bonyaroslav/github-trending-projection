@@ -51,6 +51,10 @@ public sealed class SnapshotDbContext : DbContext
             builder.Property(repository => repository.Url).HasColumnName("url").IsRequired();
             builder.Property(repository => repository.RepoUpdatedAt).HasColumnName("repo_updated_at");
             builder.HasIndex(repository => new { repository.SnapshotId, repository.Rank }).IsUnique();
+            builder.HasIndex(repository => repository.FullName);
+            builder.HasIndex(repository => repository.Language);
+            builder.HasIndex(repository => repository.Stars);
+            builder.HasIndex(repository => repository.Forks);
         });
     }
 }

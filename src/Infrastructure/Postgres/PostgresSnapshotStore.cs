@@ -52,6 +52,51 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
         return record is null ? null : SnapshotRecordMapper.ToDomain(record);
     }
 
+    public RepositoryPage? QueryRepositories(string snapshotId, RepositoryQueryParameters parameters)
+    {
+        var snapshotExists = _dbContext.Snapshots
+            .AsNoTracking()
+            .Any(snapshot => snapshot.Id == snapshotId);
+
+        if (!snapshotExists)
+        {
+            return null;
+        }
+
+        IQueryable<SnapshotRepositoryRecord> query = _dbContext.SnapshotRepositories
+            .AsNoTracking()
+            .Where(repository => repository.SnapshotId == snapshotId);
+
+        if (!string.IsNullOrWhiteSpace(parameters.Query))
+        {
+            var search = parameters.Query.Trim();
+            query = query.Where(repository =>
+                EF.Functions.ILike(repository.FullName, $"%{search}%") ||
+                (repository.Description != null && EF.Functions.ILike(repository.Description, $"%{search}%")));
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameters.Language))
+        {
+            var language = parameters.Language.Trim();
+            query = query.Where(repository =>
+                repository.Language != null &&
+                EF.Functions.ILike(repository.Language, language));
+        }
+
+        var totalItems = query.Count();
+
+        query = ApplySort(query, parameters.Sort, parameters.Order);
+
+        var items = query
+            .Skip((parameters.Page - 1) * parameters.PageSize)
+            .Take(parameters.PageSize)
+            .ToList()
+            .Select(SnapshotRecordMapper.ToDomainRepository)
+            .ToList();
+
+        return new RepositoryPage(items, totalItems);
+    }
+
     public Snapshot? UpdateMetadata(string id, bool hasName, string? name, bool hasNotes, string? notes)
     {
         var record = _dbContext.Snapshots
@@ -89,5 +134,25 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
         _dbContext.Snapshots.Remove(record);
         _dbContext.SaveChanges();
         return true;
+    }
+
+    private static IQueryable<SnapshotRepositoryRecord> ApplySort(
+        IQueryable<SnapshotRepositoryRecord> repositories,
+        string sort,
+        string order)
+    {
+        return (sort, order) switch
+        {
+            ("stars", "asc") => repositories.OrderBy(repository => repository.Stars)
+                .ThenBy(repository => repository.Rank),
+            ("stars", "desc") => repositories.OrderByDescending(repository => repository.Stars)
+                .ThenBy(repository => repository.Rank),
+            ("forks", "asc") => repositories.OrderBy(repository => repository.Forks)
+                .ThenBy(repository => repository.Rank),
+            ("forks", "desc") => repositories.OrderByDescending(repository => repository.Forks)
+                .ThenBy(repository => repository.Rank),
+            ("rank", "desc") => repositories.OrderByDescending(repository => repository.Rank),
+            _ => repositories.OrderBy(repository => repository.Rank)
+        };
     }
 }

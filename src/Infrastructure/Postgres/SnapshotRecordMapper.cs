@@ -28,7 +28,7 @@ internal static class SnapshotRecordMapper
     {
         var repositories = record.Repositories
             .OrderBy(repository => repository.Rank)
-            .Select(ToDomain)
+            .Select(ToDomainRepository)
             .ToList();
 
         return new Snapshot(
@@ -61,7 +61,7 @@ internal static class SnapshotRecordMapper
         };
     }
 
-    private static RepositorySnapshot ToDomain(SnapshotRepositoryRecord repository)
+    internal static RepositorySnapshot ToDomainRepository(SnapshotRepositoryRecord repository)
     {
         return new RepositorySnapshot(
             repository.RepoId,
