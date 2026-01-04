@@ -11,6 +11,20 @@ builder.Services.AddSingleton<IValidator<SnapshotCreateCommand>, SnapshotCreateC
 
 var app = builder.Build();
 
+app.UseExceptionHandler(appBuilder =>
+{
+    appBuilder.Run(async context =>
+    {
+        var problem = Results.Problem(
+            title: "Internal Server Error",
+            detail: "An unexpected error occurred.",
+            statusCode: StatusCodes.Status500InternalServerError,
+            type: "https://httpstatuses.com/500");
+
+        await problem.ExecuteAsync(context);
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

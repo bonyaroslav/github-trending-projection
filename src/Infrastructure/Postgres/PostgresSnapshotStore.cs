@@ -25,10 +25,15 @@ public sealed class PostgresSnapshotStore : ISnapshotStore
             transaction.Commit();
             return true;
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException exception)
         {
             transaction.Rollback();
-            return false;
+            if (DbUpdateExceptionClassifier.IsUniqueViolation(exception))
+            {
+                return false;
+            }
+
+            throw;
         }
     }
 
