@@ -69,6 +69,11 @@ public sealed class PostgresSyncRunStore : ISyncRunStore
             record.ItemsInserted = update.ItemsInserted;
         }
 
+        if (update.FailureCode.HasValue)
+        {
+            record.FailureCode = update.FailureCode.Value;
+        }
+
         await _dbContext.SaveChangesAsync(cancellationToken);
         return true;
     }

@@ -16,7 +16,8 @@ internal static class SyncRunRecordMapper
             SnapshotId = run.SnapshotId,
             Error = run.Error,
             SeedsProcessed = run.SeedsProcessed,
-            ItemsInserted = run.ItemsInserted
+            ItemsInserted = run.ItemsInserted,
+            FailureCode = run.FailureCode
         };
     }
 
@@ -31,6 +32,7 @@ internal static class SyncRunRecordMapper
             record.SnapshotId,
             record.Error,
             record.SeedsProcessed,
-            record.ItemsInserted);
+            record.ItemsInserted,
+            record.FailureCode);
     }
 }

@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Api\Api.csproj" />
     <Using Include="Xunit" />
+    <Compile Include="..\Shared\**\*.cs" />
   </ItemGroup>
 
 </Project>

@@ -170,6 +170,11 @@ public partial class SnapshotDbContextModelSnapshot : ModelSnapshot
                 .HasColumnType("integer")
                 .HasColumnName("items_inserted");
 
+            b.Property<SyncRunFailureCode>("FailureCode")
+                .HasColumnType("text")
+                .HasConversion<string>()
+                .HasColumnName("error_code");
+
             b.HasKey("Id");
 
             b.HasIndex("RequestedAt");

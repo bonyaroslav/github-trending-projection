@@ -11,4 +11,5 @@ public sealed record SyncRun(
     string? SnapshotId,
     string? Error,
     int? SeedsProcessed,
-    int? ItemsInserted);
+    int? ItemsInserted,
+    SyncRunFailureCode FailureCode = SyncRunFailureCode.None);

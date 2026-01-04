@@ -1,3 +1,4 @@
+using Core.Domain.SyncRuns;
 using Microsoft.EntityFrameworkCore;
 
 namespace Infrastructure.Postgres;
@@ -81,6 +82,11 @@ public sealed class SnapshotDbContext : DbContext
             builder.Property(run => run.Error).HasColumnName("error");
             builder.Property(run => run.SeedsProcessed).HasColumnName("seeds_processed");
             builder.Property(run => run.ItemsInserted).HasColumnName("items_inserted");
+            builder.Property(run => run.FailureCode)
+                .HasColumnName("error_code")
+                .HasConversion<string>()
+                .IsRequired()
+                .HasDefaultValue(Core.Domain.SyncRuns.SyncRunFailureCode.None);
             builder.HasIndex(run => run.RequestedAt);
         });
     }

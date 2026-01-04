@@ -9,4 +9,5 @@ public sealed record SyncRunUpdate(
     string? SnapshotId = null,
     string? Error = null,
     int? SeedsProcessed = null,
-    int? ItemsInserted = null);
+    int? ItemsInserted = null,
+    SyncRunFailureCode? FailureCode = null);

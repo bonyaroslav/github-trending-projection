@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\Core\Core.csproj" />
     <ProjectReference Include="..\..\src\Infrastructure\Infrastructure.csproj" />
     <Using Include="Xunit" />
+    <Compile Include="..\Shared\**\*.cs" />
   </ItemGroup>
 
 </Project>

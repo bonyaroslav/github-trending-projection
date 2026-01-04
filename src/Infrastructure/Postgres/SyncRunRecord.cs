@@ -14,4 +14,5 @@ public sealed class SyncRunRecord
     public string? Error { get; set; }
     public int? SeedsProcessed { get; set; }
     public int? ItemsInserted { get; set; }
+    public SyncRunFailureCode FailureCode { get; set; }
 }
