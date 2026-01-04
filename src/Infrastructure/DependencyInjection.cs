@@ -1,4 +1,5 @@
 using Core.Application.Snapshots;
+using Core.Application.SyncRuns;
 using Infrastructure.Postgres;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -22,6 +23,7 @@ public static class DependencyInjection
             options.UseNpgsql(postgresOptions.ConnectionString);
         });
         services.AddScoped<ISnapshotStore, PostgresSnapshotStore>();
+        services.AddScoped<ISyncRunStore, PostgresSyncRunStore>();
         return services;
     }
 }

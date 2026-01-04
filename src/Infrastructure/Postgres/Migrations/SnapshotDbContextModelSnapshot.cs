@@ -1,3 +1,4 @@
+using Core.Domain.SyncRuns;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -127,6 +128,53 @@ public partial class SnapshotDbContextModelSnapshot : ModelSnapshot
         modelBuilder.Entity("Infrastructure.Postgres.SnapshotRecord", b =>
         {
             b.Navigation("Repositories");
+        });
+
+        modelBuilder.Entity("Infrastructure.Postgres.SyncRunRecord", b =>
+        {
+            b.Property<string>("Id")
+                .HasColumnType("text")
+                .HasColumnName("id");
+
+            b.Property<SyncRunStatus>("Status")
+                .IsRequired()
+                .HasColumnType("text")
+                .HasConversion<string>()
+                .HasColumnName("status");
+
+            b.Property<DateTimeOffset>("RequestedAt")
+                .HasColumnType("timestamptz")
+                .HasColumnName("requested_at_utc");
+
+            b.Property<DateTimeOffset?>("StartedAt")
+                .HasColumnType("timestamptz")
+                .HasColumnName("started_at_utc");
+
+            b.Property<DateTimeOffset?>("FinishedAt")
+                .HasColumnType("timestamptz")
+                .HasColumnName("finished_at_utc");
+
+            b.Property<string>("SnapshotId")
+                .HasColumnType("text")
+                .HasColumnName("snapshot_id");
+
+            b.Property<string>("Error")
+                .HasColumnType("text")
+                .HasColumnName("error");
+
+            b.Property<int?>("SeedsProcessed")
+                .HasColumnType("integer")
+                .HasColumnName("seeds_processed");
+
+            b.Property<int?>("ItemsInserted")
+                .HasColumnType("integer")
+                .HasColumnName("items_inserted");
+
+            b.HasKey("Id");
+
+            b.HasIndex("RequestedAt");
+
+            b.ToTable("sync_runs");
         });
     }
 }

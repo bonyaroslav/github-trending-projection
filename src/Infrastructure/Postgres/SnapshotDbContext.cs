@@ -11,6 +11,7 @@ public sealed class SnapshotDbContext : DbContext
 
     public DbSet<SnapshotRecord> Snapshots => Set<SnapshotRecord>();
     public DbSet<SnapshotRepositoryRecord> SnapshotRepositories => Set<SnapshotRepositoryRecord>();
+    public DbSet<SyncRunRecord> SyncRuns => Set<SyncRunRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +56,32 @@ public sealed class SnapshotDbContext : DbContext
             builder.HasIndex(repository => repository.Language);
             builder.HasIndex(repository => repository.Stars);
             builder.HasIndex(repository => repository.Forks);
+        });
+
+        modelBuilder.Entity<SyncRunRecord>(builder =>
+        {
+            builder.ToTable("sync_runs");
+            builder.HasKey(run => run.Id);
+            builder.Property(run => run.Id).HasColumnName("id");
+            builder.Property(run => run.Status)
+                .HasColumnName("status")
+                .HasConversion<string>()
+                .IsRequired();
+            builder.Property(run => run.RequestedAt)
+                .HasColumnName("requested_at_utc")
+                .HasColumnType("timestamptz")
+                .IsRequired();
+            builder.Property(run => run.StartedAt)
+                .HasColumnName("started_at_utc")
+                .HasColumnType("timestamptz");
+            builder.Property(run => run.FinishedAt)
+                .HasColumnName("finished_at_utc")
+                .HasColumnType("timestamptz");
+            builder.Property(run => run.SnapshotId).HasColumnName("snapshot_id");
+            builder.Property(run => run.Error).HasColumnName("error");
+            builder.Property(run => run.SeedsProcessed).HasColumnName("seeds_processed");
+            builder.Property(run => run.ItemsInserted).HasColumnName("items_inserted");
+            builder.HasIndex(run => run.RequestedAt);
         });
     }
 }

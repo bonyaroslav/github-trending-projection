@@ -80,7 +80,7 @@ public sealed class PostgresFixture : IAsyncLifetime
 
         await using var context = new SnapshotDbContext(CreateOptions());
         await context.Database.MigrateAsync();
-        await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE \"snapshot_repositories\", \"snapshots\";");
+        await context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE \"sync_runs\", \"snapshot_repositories\", \"snapshots\";");
     }
 
     private async Task ApplyMigrationsAsync()
